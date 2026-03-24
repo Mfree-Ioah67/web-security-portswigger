@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XSS Detector</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0f0f1a; color: #e0e0e0;
+      min-height: 100vh; padding: 30px 20px;
+    }
+    .container { max-width: 780px; margin: 0 auto; }
+    h1 {
+      text-align: center; font-size: 2em; color: #00d4ff;
+      text-shadow: 0 0 20px rgba(0,212,255,.5); margin-bottom: 6px;
+    }
+    .subtitle { text-align: center; color: #888; margin-bottom: 28px; font-size: .9em; }
+    .card {
+      background: #1a1a2e; border: 1px solid #2d2d4e;
+      border-radius: 12px; padding: 24px; margin-bottom: 18px;
+    }
+    label { display: block; margin-bottom: 8px; color: #aaa; font-size: .9em; }
+    textarea {
+      width: 100%; height: 110px; padding: 12px;
+      background: #0d0d1a; border: 1px solid #3d3d5e;
+      border-radius: 8px; color: #e0e0e0;
+      font-family: 'Courier New', monospace; font-size: 13px;
+      resize: vertical;
+    }
+    textarea:focus { outline: none; border-color: #00d4ff; }
+    .model-select { display: flex; gap: 10px; margin: 14px 0; flex-wrap: wrap; }
+    .model-btn {
+      flex: 1; min-width: 110px; padding: 10px;
+      background: #0d0d1a; border: 2px solid #3d3d5e;
+      border-radius: 8px; color: #aaa; cursor: pointer;
+      text-align: center; transition: all .2s; font-size: 13px;
+    }
+    .model-btn:hover { border-color: #00d4ff; color: #00d4ff; }
+    .model-btn.active {
+      border-color: #00d4ff; color: #00d4ff;
+      background: rgba(0,212,255,.1);
+    }
+    .detect-btn {
+      width: 100%; padding: 13px;
+      background: linear-gradient(135deg, #00d4ff, #0066cc);
+      border: none; border-radius: 8px; color: #fff;
+      font-size: 15px; font-weight: bold; cursor: pointer;
+      margin-top: 10px; transition: opacity .2s;
+    }
+    .detect-btn:hover { opacity: .85; }
+    .detect-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .result {
+      display: none; border-radius: 10px;
+      padding: 20px; margin-top: 18px;
+    }
+    .result.xss     { background: rgba(231,76,60,.15); border: 2px solid #e74c3c; }
+    .result.benign  { background: rgba(39,174,96,.15);  border: 2px solid #27ae60; }
+    .result-label   { font-size: 1.5em; font-weight: bold; margin-bottom: 10px; }
+    .result.xss    .result-label { color: #e74c3c; }
+    .result.benign .result-label { color: #27ae60; }
+    .bar-wrap {
+      background: #0d0d1a; border-radius: 20px;
+      height: 10px; margin: 8px 0; overflow: hidden;
+    }
+    .bar-fill { height: 100%; border-radius: 20px; transition: width .5s ease; }
+    .xss    .bar-fill { background: linear-gradient(90deg, #e74c3c, #c0392b); }
+    .benign .bar-fill { background: linear-gradient(90deg, #27ae60, #1e8449); }
+    .meta { color: #888; font-size: .85em; margin-top: 10px; }
+    .proba-row { display: flex; justify-content: space-between; margin-top: 6px; font-size: .9em; }
+    .spinner { display: none; text-align: center; padding: 12px; color: #00d4ff; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>🛡️ XSS Detector</h1>
+  <p class="subtitle">Phát hiện XSS payload bằng SVM · DistilBERT · PhoBERT</p>
+
+  <div class="card">
+    <label>Nhập payload hoặc đoạn text cần kiểm tra:</label>
+    <textarea id="payload" placeholder='Ví dụ: <script>alert(1)</script>'></textarea>
+
+    <label style="margin-top:14px">Chọn model:</label>
+    <div class="model-select">
+      <div class="model-btn active" data-model="svm">SVM + TF-IDF<br><small>Nhanh nhất</small></div>
+      <div class="model-btn" data-model="distilbert">DistilBERT<br><small>Cân bằng</small></div>
+      <div class="model-btn" data-model="phobert">PhoBERT<br><small>Tiếng Việt</small></div>
+    </div>
+
+    <button class="detect-btn" id="detectBtn" onclick="detect()">🔍 Phát hiện XSS</button>
+  </div>
+
+  <div class="spinner" id="spinner">⏳ Đang phân tích...</div>
+
+  <div class="result" id="result">
+    <div class="result-label" id="verdict"></div>
+    <div class="bar-wrap"><div class="bar-fill" id="bar"></div></div>
+    <div class="proba-row">
+      <span id="probBenign"></span>
+      <span id="probXss"></span>
+    </div>
+    <div class="meta" id="meta"></div>
+  </div>
+</div>
+
+<script>
+  let selectedModel = 'svm';
+
+  document.querySelectorAll('.model-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.model-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedModel = btn.dataset.model;
+    });
+  });
+
+  document.getElementById('payload').addEventListener('keydown', e => {
+    if (e.ctrlKey && e.key === 'Enter') detect();
+  });
+
+  async function detect() {
+    const payload = document.getElementById('payload').value.trim();
+    if (!payload) return;
+
+    const btn     = document.getElementById('detectBtn');
+    const spinner = document.getElementById('spinner');
+    const result  = document.getElementById('result');
+
+    btn.disabled = true;
+    spinner.style.display = 'block';
+    result.style.display  = 'none';
+
+    try {
+      const res  = await fetch('/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload, model: selectedModel })
+      });
+      const data = await res.json();
+
+      if (data.error) { alert('Lỗi: ' + data.error); return; }
+
+      const isXss = data.is_xss;
+      result.className = 'result ' + (isXss ? 'xss' : 'benign');
+      document.getElementById('verdict').textContent   = data.verdict;
+      document.getElementById('bar').style.width       = (data.confidence * 100).toFixed(1) + '%';
+      document.getElementById('probBenign').textContent = `Benign: ${(data.prob_benign * 100).toFixed(2)}%`;
+      document.getElementById('probXss').textContent    = `XSS:    ${(data.prob_xss * 100).toFixed(2)}%`;
+      document.getElementById('meta').textContent       = `Model: ${data.model.toUpperCase()} · Confidence: ${(data.confidence * 100).toFixed(2)}%`;
+      result.style.display = 'block';
+    } catch (err) {
+      alert('Lỗi kết nối: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      spinner.style.display = 'none';
+    }
+  }
+</script>
+</body>
+</html>

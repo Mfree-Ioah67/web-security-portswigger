@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Models — binary weights (too large for GitHub, use Git LFS or download separately)
+*.pkl
+*.pth
+*.bin
+*.h5
+*.safetensors
+*.pt
+models/
+results_*/
+logs_*/
+
+# Data
+PayloadCollection/
+Web-Application-Payloads-Dataset/
+PayloadsAllTheThings/
+dataset/*.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
